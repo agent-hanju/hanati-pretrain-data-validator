@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.installed.cfg
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+.mypy_cache
+.pytest_cache
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.env
+
+# Output files (may contain sensitive model outputs)
+result*.csv
+output*.csv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Local config (use config.example.yml as template)
+config.yml

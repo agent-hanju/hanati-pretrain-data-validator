@@ -1,0 +1,28 @@
+.git/
+.gitignore
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.mypy_cache
+.pytest_cache
+
+# Output artifacts — not needed in image
+result*.csv
+output*.csv
+*.log
+
+# Dev & test files
+.vscode/
+.idea/
+Dockerfile
+.dockerignore
+tests/
+requirements-dev.txt
+pytest.ini
+
+# Secrets
+.env
+.env.*
