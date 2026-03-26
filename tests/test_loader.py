@@ -31,12 +31,14 @@ def test_skips_invalid_json(tmp_path, capsys):
     assert "WARN" in capsys.readouterr().out
 
 
-def test_skips_missing_id(tmp_path, capsys):
+def test_auto_id_when_missing(tmp_path):
     f = tmp_path / "data.jsonl"
-    _write_jsonl(f, [{"prompt": "no id"}, {"id": "1", "prompt": "ok"}])
+    _write_jsonl(f, [{"prompt": "no id"}, {"id": "1", "prompt": "ok"}, {"prompt": "also no id"}])
     rows = load_jsonl(str(f))
-    assert len(rows) == 1
-    assert "WARN" in capsys.readouterr().out
+    assert len(rows) == 3
+    assert rows[0]["id"] == "auto-1"
+    assert rows[1]["id"] == "1"
+    assert rows[2]["id"] == "auto-2"
 
 
 def test_skips_missing_prompt_field(tmp_path, capsys):

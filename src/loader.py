@@ -12,6 +12,7 @@ def load_jsonl(file_path: str, prompt_field: str = "prompt") -> list[dict[str, A
         sys.exit(1)
 
     rows: list[dict[str, Any]] = []
+    auto_id = 0
     with open(path, "rb") as f:  # orjson.loads accepts bytes directly
         for lineno, line in enumerate(f, start=1):
             line = line.strip()
@@ -29,12 +30,13 @@ def load_jsonl(file_path: str, prompt_field: str = "prompt") -> list[dict[str, A
 
             row = cast(dict[str, Any], obj)
 
-            if "id" not in row:
-                print(f"[WARN] Line {lineno}: missing 'id' field — skipped.")
-                continue
             if prompt_field not in row:
                 print(f"[WARN] Line {lineno}: missing '{prompt_field}' field — skipped.")
                 continue
+
+            if "id" not in row:
+                auto_id += 1
+                row["id"] = f"auto-{auto_id}"
 
             rows.append(row)
 

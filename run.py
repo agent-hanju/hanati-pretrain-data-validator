@@ -1,10 +1,14 @@
 import argparse
 import asyncio
+from pathlib import Path
 from typing import Any
+
+import orjson
 
 from src.config import Config, load_config
 from src.generator import CompletionResult, call_completions, make_async_client
 from src.loader import load_jsonl
+from src.sampler import sample
 from src.writer import CsvWriter
 
 FIXED_COLUMNS: list[str] = [
@@ -40,7 +44,7 @@ def build_row(
     return row
 
 
-async def async_main(args: argparse.Namespace) -> None:
+async def run_validate(args: argparse.Namespace) -> None:
     config = load_config(args.config)
     prompt_field = config["input"]["prompt_field"]
     rows_input = load_jsonl(args.input, prompt_field)
@@ -75,14 +79,50 @@ async def async_main(args: argparse.Namespace) -> None:
             writer.write_row(row)
 
 
+def run_sample(args: argparse.Namespace) -> None:
+    results = sample(args.inputs, args.n, args.text_field, args.seed)
+
+    out = Path(args.output)
+    with open(out, "wb") as f:
+        for row in results:
+            f.write(orjson.dumps(row) + b"\n")
+
+    print(f"Wrote {len(results)} samples to {out}")
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Validation Set Generator")
-    parser.add_argument("--config", default="config.yml", help="YAML config file path")
-    parser.add_argument("--input", required=True, help="Input JSONL file path")
-    parser.add_argument("--output", required=True, help="Output CSV file path")
-    parser.add_argument("--dry-run", action="store_true",
-                        help="Validate config and jsonl without calling the API")
-    asyncio.run(async_main(parser.parse_args()))
+    parser = argparse.ArgumentParser(description="Pretrain Data Validator")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    # --- validate ---
+    p_validate = subparsers.add_parser(
+        "validate", help="Run validation via LLM API",
+    )
+    p_validate.add_argument("--config", default="config.yml", help="YAML config file path")
+    p_validate.add_argument("--input", required=True, help="Input JSONL file path")
+    p_validate.add_argument("--output", required=True, help="Output CSV file path")
+    p_validate.add_argument("--dry-run", action="store_true",
+                            help="Validate config and jsonl without calling the API")
+
+    # --- sample ---
+    p_sample = subparsers.add_parser(
+        "sample", help="Sample random snippets from JSONL files",
+    )
+    p_sample.add_argument("inputs", nargs="+", help="Input JSONL file paths")
+    p_sample.add_argument("-n", type=int, default=10,
+                          help="Number of documents to sample (default: 10)")
+    p_sample.add_argument("-o", "--output", required=True, help="Output JSONL file path")
+    p_sample.add_argument("--text-field", default="text",
+                          help="Name of the text field (default: text)")
+    p_sample.add_argument("--seed", type=int, default=None,
+                          help="Random seed for reproducibility")
+
+    args = parser.parse_args()
+
+    if args.command == "validate":
+        asyncio.run(run_validate(args))
+    elif args.command == "sample":
+        run_sample(args)
 
 
 if __name__ == "__main__":
