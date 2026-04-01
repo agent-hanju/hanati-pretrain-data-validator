@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest tests/test_loader.py tests/test_sample.py tests/test_writer.py -v)",
+      "Bash(python -m pytest tests/test_loader.py tests/test_sample.py -v)",
+      "Bash(python -m pytest tests/test_sample.py -v)"
+    ]
+  }
+}

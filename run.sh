@@ -2,7 +2,8 @@
 set -euo pipefail
 
 # Usage:
-#   ./run.sh validate [input.jsonl] [--dry-run]
+#   ./run.sh validate [input.jsonl] [--config config.yml] [--output output.csv] [--format csv|xlsx] [--dry-run]
+#   ./run.sh convert  <input.csv> [--output output.xlsx]
 #   ./run.sh sample   <file1.jsonl> [file2.jsonl ...] -n 20 -o output.jsonl [--text-field text] [--seed 42]
 #
 # Run from the directory containing config.yml and your .jsonl files.
@@ -19,8 +20,9 @@ fi
 COMMAND="${1:-}"
 if [[ -z "$COMMAND" ]]; then
     echo "Usage:" >&2
-    echo "  ./run.sh validate [input.jsonl] [--dry-run]" >&2
-    echo "  ./run.sh sample <file1.jsonl> [file2.jsonl ...] -n 20 -o output.jsonl [--seed 42]" >&2
+    echo "  ./run.sh validate [input.jsonl] [--config config.yml] [--output output.csv] [--format csv|xlsx] [--dry-run]" >&2
+    echo "  ./run.sh convert  <input.csv> [--output output.xlsx]" >&2
+    echo "  ./run.sh sample   <file1.jsonl> [file2.jsonl ...] -n 20 -o output.jsonl [--seed 42]" >&2
     exit 1
 fi
 shift
@@ -30,14 +32,21 @@ WORKDIR="$(pwd)"
 case "$COMMAND" in
 validate)
     INPUT_FILE=""
+    CONFIG_FILE=""
+    OUTPUT_FILE=""
+    FORMAT=""
     DRY_RUN=""
 
-    for arg in "$@"; do
-        case "$arg" in
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
             --dry-run) DRY_RUN="--dry-run" ;;
-            *.jsonl)   INPUT_FILE="$arg" ;;
-            *) echo "Unknown argument: $arg" >&2; exit 1 ;;
+            --config)  shift; CONFIG_FILE="$1" ;;
+            --output)  shift; OUTPUT_FILE="$1" ;;
+            --format)  shift; FORMAT="$1" ;;
+            *.jsonl)   INPUT_FILE="$1" ;;
+            *) echo "Unknown argument: $1" >&2; exit 1 ;;
         esac
+        shift
     done
 
     # auto-detect jsonl if not specified
@@ -54,8 +63,12 @@ validate)
         INPUT_FILE="${jsonl_files[0]##*/}"
     fi
 
-    if [[ ! -f "$WORKDIR/config.yml" ]]; then
-        echo "Error: config.yml not found in $WORKDIR" >&2
+    # default config
+    if [[ -z "$CONFIG_FILE" ]]; then
+        CONFIG_FILE="config.yml"
+    fi
+    if [[ ! -f "$WORKDIR/$CONFIG_FILE" ]]; then
+        echo "Error: $CONFIG_FILE not found in $WORKDIR" >&2
         exit 1
     fi
     if [[ ! -f "$WORKDIR/$INPUT_FILE" ]]; then
@@ -63,12 +76,29 @@ validate)
         exit 1
     fi
 
-    OUTPUT_FILE="${INPUT_FILE%.jsonl}.csv"
+    # default format and output
+    if [[ -z "$FORMAT" ]]; then
+        FORMAT="csv"
+    fi
+    if [[ -z "$OUTPUT_FILE" ]]; then
+        if [[ "$FORMAT" == "xlsx" ]]; then
+            OUTPUT_FILE="${INPUT_FILE%.jsonl}.xlsx"
+        else
+            OUTPUT_FILE="${INPUT_FILE%.jsonl}.csv"
+        fi
+    fi
+
+    FORMAT_ARG=""
+    if [[ -n "$FORMAT" ]]; then
+        FORMAT_ARG="--format $FORMAT"
+    fi
 
     echo "command : validate"
     echo "workdir : $WORKDIR"
+    echo "config  : $CONFIG_FILE"
     echo "input   : $INPUT_FILE"
     echo "output  : $OUTPUT_FILE"
+    echo "format  : $FORMAT"
     echo "image   : $IMAGE"
     [[ -n "$DRY_RUN" ]] && echo "(dry-run mode)"
     echo ""
@@ -78,10 +108,51 @@ validate)
         -v "$WORKDIR:/data" \
         "$IMAGE" \
         validate \
-        --config /data/config.yml \
+        --config "/data/$CONFIG_FILE" \
         --input  "/data/$INPUT_FILE" \
         --output "/data/$OUTPUT_FILE" \
+        $FORMAT_ARG \
         $DRY_RUN
+    ;;
+
+convert)
+    CSV_FILE=""
+    OUTPUT_FILE=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --output) shift; OUTPUT_FILE="$1" ;;
+            *.csv)    CSV_FILE="$1" ;;
+            *) echo "Unknown argument: $1" >&2; exit 1 ;;
+        esac
+        shift
+    done
+
+    if [[ -z "$CSV_FILE" ]]; then
+        echo "Error: input CSV file is required" >&2
+        exit 1
+    fi
+    if [[ ! -f "$WORKDIR/$CSV_FILE" ]]; then
+        echo "Error: $CSV_FILE not found in $WORKDIR" >&2
+        exit 1
+    fi
+    if [[ -z "$OUTPUT_FILE" ]]; then
+        OUTPUT_FILE="${CSV_FILE%.csv}.xlsx"
+    fi
+
+    echo "command : convert"
+    echo "workdir : $WORKDIR"
+    echo "input   : $CSV_FILE"
+    echo "output  : $OUTPUT_FILE"
+    echo "image   : $IMAGE"
+    echo ""
+
+    docker run --rm \
+        -v "$WORKDIR:/data" \
+        "$IMAGE" \
+        convert \
+        --input  "/data/$CSV_FILE" \
+        --output "/data/$OUTPUT_FILE"
     ;;
 
 sample)
@@ -135,7 +206,7 @@ sample)
 
 *)
     echo "Unknown command: $COMMAND" >&2
-    echo "Available commands: validate, sample" >&2
+    echo "Available commands: validate, convert, sample" >&2
     exit 1
     ;;
 esac

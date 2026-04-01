@@ -9,7 +9,7 @@ from src.config import Config, load_config
 from src.generator import CompletionResult, call_completions, make_async_client
 from src.loader import load_jsonl
 from src.sampler import sample
-from src.writer import CsvWriter
+from src.writer import make_writer, convert_csv_to_xlsx
 
 FIXED_COLUMNS: list[str] = [
     "id", "type", "prompt", "generated", "model", "finish_reason",
@@ -73,8 +73,9 @@ async def run_validate(args: argparse.Namespace) -> None:
         tasks = [bounded_call(raw) for raw in rows_input]
         rows_output: list[dict[str, Any]] = await asyncio.gather(*tasks)
 
+    fmt = args.format or ("xlsx" if args.output.endswith(".xlsx") else "csv")
     fieldnames = make_fieldnames(rows_input[0], prompt_field)
-    with CsvWriter(config, fieldnames, args.output, args.input) as writer:
+    with make_writer(fmt, config, fieldnames, args.output, args.input) as writer:
         for row in rows_output:  # asyncio.gather preserves input order
             writer.write_row(row)
 
@@ -100,9 +101,18 @@ def main() -> None:
     )
     p_validate.add_argument("--config", default="config.yml", help="YAML config file path")
     p_validate.add_argument("--input", required=True, help="Input JSONL file path")
-    p_validate.add_argument("--output", required=True, help="Output CSV file path")
+    p_validate.add_argument("--output", required=True, help="Output file path")
+    p_validate.add_argument("--format", choices=["csv", "xlsx"], default=None,
+                            help="Output format (default: inferred from --output extension)")
     p_validate.add_argument("--dry-run", action="store_true",
                             help="Validate config and jsonl without calling the API")
+
+    # --- convert ---
+    p_convert = subparsers.add_parser(
+        "convert", help="Convert CSV output to xlsx",
+    )
+    p_convert.add_argument("--input", required=True, help="Input CSV file path")
+    p_convert.add_argument("--output", default=None, help="Output xlsx file path (default: same name with .xlsx)")
 
     # --- sample ---
     p_sample = subparsers.add_parser(
@@ -121,6 +131,9 @@ def main() -> None:
 
     if args.command == "validate":
         asyncio.run(run_validate(args))
+    elif args.command == "convert":
+        xlsx_out = args.output or args.input.removesuffix(".csv") + ".xlsx"
+        convert_csv_to_xlsx(args.input, xlsx_out)
     elif args.command == "sample":
         run_sample(args)
 
