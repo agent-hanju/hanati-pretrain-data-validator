@@ -29,9 +29,12 @@ async def call_completions(client: AsyncOpenAI, prompt: str, config: Config) -> 
     gen = config["generation"]
 
     rep_penalty = gen["repetition_penalty"]
-    extra_body: dict[str, Any] | None = (
-        {"repetition_penalty": rep_penalty} if rep_penalty != 1.0 else None
-    )
+    top_k = gen["top_k"]
+    extra_body: dict[str, Any] = {}
+    if rep_penalty != 1.0:
+        extra_body["repetition_penalty"] = rep_penalty
+    if top_k != -1:
+        extra_body["top_k"] = top_k
 
     last_error: Exception | None = None
     for attempt in range(2):
@@ -43,7 +46,7 @@ async def call_completions(client: AsyncOpenAI, prompt: str, config: Config) -> 
                 temperature=gen["temperature"],
                 top_p=gen["top_p"],
                 seed=gen["seed"],
-                extra_body=extra_body,
+                extra_body=extra_body or None,
             )
             choice = response.choices[0]
             usage = response.usage

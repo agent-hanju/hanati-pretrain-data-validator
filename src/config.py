@@ -15,6 +15,7 @@ class GenerationConfig(TypedDict):
     max_tokens: int
     temperature: float
     top_p: float
+    top_k: int
     seed: int
     repetition_penalty: float
 
@@ -39,6 +40,7 @@ REQUIRED_KEYS: list[tuple[str, str]] = [
 
 DEFAULTS: dict[tuple[str, str], int | float | str] = {
     ("generation", "top_p"): 1.0,
+    ("generation", "top_k"): -1,
     ("generation", "repetition_penalty"): 1.0,
     ("input", "prompt_field"): "prompt",
     ("api", "concurrency"): 8,  # max simultaneous requests to vLLM

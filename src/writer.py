@@ -17,6 +17,7 @@ def build_comment(config: Config, input_path: str) -> str:
         f"max_tokens={gen['max_tokens']} "
         f"temperature={gen['temperature']} "
         f"top_p={gen['top_p']} "
+        f"top_k={gen['top_k']} "
         f"repetition_penalty={gen['repetition_penalty']} "
         f"seed={gen['seed']} "
         f"input={input_path}"
