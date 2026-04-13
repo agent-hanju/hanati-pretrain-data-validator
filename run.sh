@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Usage:
-#   ./run.sh validate [input.jsonl] [--config config.yml] [--output output.csv] [--format csv|xlsx] [--dry-run]
+#   ./run.sh validate [input.jsonl] [--config config.yml] [--output output.csv] [--format csv|xlsx] [--api-mode chat|text] [--dry-run]
 #   ./run.sh convert  <input.csv> [--output output.xlsx]
 #   ./run.sh sample   <file1.jsonl> [file2.jsonl ...] -n 20 -o output.jsonl [--text-field text] [--seed 42]
 #
@@ -20,7 +20,7 @@ fi
 COMMAND="${1:-}"
 if [[ -z "$COMMAND" ]]; then
     echo "Usage:" >&2
-    echo "  ./run.sh validate [input.jsonl] [--config config.yml] [--output output.csv] [--format csv|xlsx] [--dry-run]" >&2
+    echo "  ./run.sh validate [input.jsonl] [--config config.yml] [--output output.csv] [--format csv|xlsx] [--api-mode chat|text] [--dry-run]" >&2
     echo "  ./run.sh convert  <input.csv> [--output output.xlsx]" >&2
     echo "  ./run.sh sample   <file1.jsonl> [file2.jsonl ...] -n 20 -o output.jsonl [--seed 42]" >&2
     exit 1
@@ -36,14 +36,16 @@ validate)
     OUTPUT_FILE=""
     FORMAT=""
     DRY_RUN=""
+    API_MODE=""
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --dry-run) DRY_RUN="--dry-run" ;;
-            --config)  shift; CONFIG_FILE="$1" ;;
-            --output)  shift; OUTPUT_FILE="$1" ;;
-            --format)  shift; FORMAT="$1" ;;
-            *.jsonl)   INPUT_FILE="$1" ;;
+            --dry-run)   DRY_RUN="--dry-run" ;;
+            --config)    shift; CONFIG_FILE="$1" ;;
+            --output)    shift; OUTPUT_FILE="$1" ;;
+            --format)    shift; FORMAT="$1" ;;
+            --api-mode)  shift; API_MODE="$1" ;;
+            *.jsonl)     INPUT_FILE="$1" ;;
             *) echo "Unknown argument: $1" >&2; exit 1 ;;
         esac
         shift
@@ -99,9 +101,15 @@ validate)
     echo "input   : $INPUT_FILE"
     echo "output  : $OUTPUT_FILE"
     echo "format  : $FORMAT"
+    echo "api-mode: ${API_MODE:-chat}"
     echo "image   : $IMAGE"
     [[ -n "$DRY_RUN" ]] && echo "(dry-run mode)"
     echo ""
+
+    API_MODE_ARG=""
+    if [[ -n "$API_MODE" ]]; then
+        API_MODE_ARG="--api-mode $API_MODE"
+    fi
 
     docker run --rm \
         --network host \
@@ -112,6 +120,7 @@ validate)
         --input  "/data/$INPUT_FILE" \
         --output "/data/$OUTPUT_FILE" \
         $FORMAT_ARG \
+        $API_MODE_ARG \
         $DRY_RUN
     ;;
 

@@ -6,7 +6,7 @@ from typing import Any
 import orjson
 
 from src.config import Config, load_config
-from src.generator import CompletionResult, call_completions, make_async_client
+from src.generator import CompletionResult, call_completions, call_text_completions, make_async_client
 from src.loader import load_jsonl
 from src.sampler import sample
 from src.writer import make_writer, convert_csv_to_xlsx
@@ -51,6 +51,10 @@ async def run_validate(args: argparse.Namespace) -> None:
 
     print(f"Loaded {len(rows_input)} rows from {args.input}")
 
+    use_text_api = getattr(args, "api_mode", "chat") == "text"
+    api_fn = call_text_completions if use_text_api else call_completions
+    print(f"API mode: {'text completions' if use_text_api else 'chat completions'}")
+
     if args.dry_run:
         print("[dry-run] Config and input file are valid. Exiting without API calls.")
         return
@@ -64,7 +68,7 @@ async def run_validate(args: argparse.Namespace) -> None:
         async def bounded_call(raw: dict[str, Any]) -> dict[str, Any]:
             nonlocal completed
             async with semaphore:
-                result = await call_completions(client, raw[prompt_field], config)
+                result = await api_fn(client, raw[prompt_field], config)
             completed += 1
             status = "ok" if result["finish_reason"] != "error" else "error"
             print(f"[{completed}/{total}] id={raw['id']} → {status} ({result['finish_reason']})")
@@ -106,6 +110,8 @@ def main() -> None:
                             help="Output format (default: inferred from --output extension)")
     p_validate.add_argument("--dry-run", action="store_true",
                             help="Validate config and jsonl without calling the API")
+    p_validate.add_argument("--api-mode", choices=["chat", "text"], default="chat",
+                            help="API mode: 'chat' (default) uses chat completions, 'text' uses text completions")
 
     # --- convert ---
     p_convert = subparsers.add_parser(
