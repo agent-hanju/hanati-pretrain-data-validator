@@ -25,17 +25,26 @@ pip install -r requirements-dev.txt
 JSONL의 각 행을 LLM에 보내고, 생성 결과를 CSV로 저장한다.
 
 ```bash
-python run.py validate --input data.jsonl --output result.csv [--config config.yml] [--dry-run]
+python run.py validate --input data.jsonl --output result.csv [--config config.yml] [--api-mode chat|text|messages] [--dry-run]
 ```
 
 | 옵션 | 설명 | 기본값 |
 |---|---|---|
 | `--input` | 입력 JSONL 파일 경로 | (필수) |
-| `--output` | 출력 CSV 파일 경로 | (필수) |
+| `--output` | 출력 파일 경로 (`.csv` 또는 `.xlsx`) | (필수) |
 | `--config` | YAML 설정 파일 경로 | `config.yml` |
+| `--api-mode` | API 호출 방식 (`chat` / `text` / `messages`) | `chat` |
 | `--dry-run` | 설정/입력 검증만 수행, API 호출 안 함 | |
 
-#### 입력 JSONL 형식
+#### API 모드 (`--api-mode`)
+
+| 모드 | 설명 | 입력 필드 |
+|---|---|---|
+| `chat` (기본) | 단일 프롬프트를 user 메시지로 구성해 chat completions 호출 | `prompt` (또는 `prompt_field` 설정값) |
+| `text` | text completions (`/v1/completions`) 호출 | 동일 |
+| `messages` | `messages` 배열을 그대로 chat completions에 전달. tool_calls가 포함된 멀티턴 대화에 사용 | `messages`, `tools` (선택) |
+
+#### 입력 JSONL 형식 — chat / text 모드
 
 각 행은 JSON 객체. `prompt` 필드가 필수이며, `id`가 없으면 자동 부여된다.
 
@@ -46,13 +55,53 @@ python run.py validate --input data.jsonl --output result.csv [--config config.y
 
 `prompt` 외의 필드명은 `config.yml`의 `input.prompt_field`로 변경 가능.
 
-#### 출력 CSV
+#### 입력 JSONL 형식 — messages 모드
+
+`messages` 필드(OpenAI chat completions 형식 배열)가 필수. `tools`는 선택이며, 있으면 함께 전달된다. `answer` 등 나머지 필드는 API에 전달되지 않고 출력 파일에 그대로 기록된다.
+
+```jsonl
+{
+  "id": "eval-001",
+  "eval_type": "answer_quality",
+  "messages": [
+    {"role": "system", "content": "당신은 어시스턴트입니다."},
+    {"role": "user", "content": "질문"},
+    {"role": "assistant", "tool_calls": [{"id": "call_x", "type": "function", "function": {"name": "search", "arguments": "{\"query\": \"질문\"}"}}]},
+    {"role": "tool", "tool_call_id": "call_x", "name": "search", "content": "검색 결과"}
+  ],
+  "tools": [{"type": "function", "function": {"name": "search", "description": "...", "parameters": {}}}],
+  "tool_choice": "required",
+  "answer": "정답 레퍼런스 (평가용, API 미전달)"
+}
+```
+
+| 필드 | 설명 |
+|---|---|
+| `messages` | OpenAI chat completions 형식 배열 (필수) |
+| `tools` | tool 정의 배열 (선택, 있으면 API에 전달) |
+| `tool_choice` | tool 선택 방식 (`"auto"` / `"required"` / `"none"` / 특정 함수 지정). **생략하면 API 기본값 사용** (파라미터 자체를 전달하지 않음) |
+| `answer` 등 나머지 필드 | API에 전달되지 않고 출력 파일에 그대로 기록 |
+
+```bash
+python run.py validate --input eval.jsonl --output result.xlsx --api-mode messages
+```
+
+#### 출력 CSV / XLSX
 
 ```
 # model=my-model max_tokens=100 temperature=0.1 top_p=0.9 repetition_penalty=1.1 seed=42 input=data.jsonl
-id,type,prompt,generated,model,finish_reason,prompt_tokens,completion_tokens
-doc-001,qa,질문 내용,생성된 답변,my-model,stop,15,42
+id,type,prompt,generated,tool_calls,reasoning,model,finish_reason,prompt_tokens,completion_tokens,...
+doc-001,qa,질문 내용,생성된 답변,[],,"my-model",stop,15,42,...
 ```
+
+| 컬럼 | 설명 |
+|---|---|
+| `generated` | 모델의 텍스트 응답 (`message.content`) |
+| `tool_calls` | 모델이 호출한 tool_calls 배열 (JSON 문자열). 없으면 빈 문자열 |
+| `reasoning` | 모델의 추론 과정 (`reasoning_content` 또는 `reasoning` 속성). 없으면 빈 문자열 |
+| `prompt` | `messages` 모드에서는 messages 배열이 JSON 문자열로 기록됨 |
+
+- `answer` 등 입력 파일의 나머지 필드는 추가 컬럼으로 그대로 기록된다.
 
 ### sample — 랜덤 샘플링으로 검증 세트 생성
 

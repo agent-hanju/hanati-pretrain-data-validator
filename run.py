@@ -6,13 +6,13 @@ from typing import Any
 import orjson
 
 from src.config import Config, load_config
-from src.generator import CompletionResult, call_completions, call_text_completions, make_async_client
-from src.loader import load_jsonl
+from src.generator import CompletionResult, call_chat_messages, call_completions, call_text_completions, make_async_client
+from src.loader import load_jsonl, load_jsonl_messages
 from src.sampler import sample
 from src.writer import make_writer, convert_csv_to_xlsx
 
 FIXED_COLUMNS: list[str] = [
-    "id", "type", "prompt", "generated", "model", "finish_reason",
+    "id", "type", "prompt", "generated", "tool_calls", "reasoning", "model", "finish_reason",
     "prompt_tokens", "completion_tokens",
 ]
 
@@ -29,31 +29,41 @@ def build_row(
     prompt_field: str,
 ) -> dict[str, Any]:
     extra_keys = [k for k in raw if k not in ("id", "type", prompt_field)]
+    prompt_val = raw.get(prompt_field, "")
+    if not isinstance(prompt_val, str):
+        prompt_val = orjson.dumps(prompt_val).decode()
     row: dict[str, Any] = {
         "id": raw.get("id", ""),
-        "type": raw.get("type", ""),
-        "prompt": raw.get(prompt_field, ""),
+        "type": raw.get("type", raw.get("eval_type", "")),
+        "prompt": prompt_val,
         "generated": result["generated"],
+        "tool_calls": result["tool_calls"],
+        "reasoning": result["reasoning"],
         "model": config["api"]["model"],
         "finish_reason": result["finish_reason"],
         "prompt_tokens": result["prompt_tokens"],
         "completion_tokens": result["completion_tokens"],
     }
     for k in extra_keys:
-        row[k] = raw[k]
+        v = raw[k]
+        row[k] = orjson.dumps(v).decode() if not isinstance(v, (str, int, float, bool, type(None))) else v
     return row
 
 
 async def run_validate(args: argparse.Namespace) -> None:
     config = load_config(args.config)
-    prompt_field = config["input"]["prompt_field"]
-    rows_input = load_jsonl(args.input, prompt_field)
+    api_mode = getattr(args, "api_mode", "chat")
+    use_messages_mode = api_mode == "messages"
+
+    if use_messages_mode:
+        rows_input = load_jsonl_messages(args.input)
+        prompt_field = "messages"
+    else:
+        prompt_field = config["input"]["prompt_field"]
+        rows_input = load_jsonl(args.input, prompt_field)
 
     print(f"Loaded {len(rows_input)} rows from {args.input}")
-
-    use_text_api = getattr(args, "api_mode", "chat") == "text"
-    api_fn = call_text_completions if use_text_api else call_completions
-    print(f"API mode: {'text completions' if use_text_api else 'chat completions'}")
+    print(f"API mode: {api_mode}")
 
     if args.dry_run:
         print("[dry-run] Config and input file are valid. Exiting without API calls.")
@@ -68,7 +78,18 @@ async def run_validate(args: argparse.Namespace) -> None:
         async def bounded_call(raw: dict[str, Any]) -> dict[str, Any]:
             nonlocal completed
             async with semaphore:
-                result = await api_fn(client, raw[prompt_field], config)
+                if use_messages_mode:
+                    result = await call_chat_messages(
+                        client,
+                        raw["messages"],
+                        config,
+                        tools=raw.get("tools"),
+                        tool_choice=raw.get("tool_choice"),
+                    )
+                elif api_mode == "text":
+                    result = await call_text_completions(client, raw[prompt_field], config)
+                else:
+                    result = await call_completions(client, raw[prompt_field], config)
             completed += 1
             status = "ok" if result["finish_reason"] != "error" else "error"
             print(f"[{completed}/{total}] id={raw['id']} → {status} ({result['finish_reason']})")
@@ -110,8 +131,10 @@ def main() -> None:
                             help="Output format (default: inferred from --output extension)")
     p_validate.add_argument("--dry-run", action="store_true",
                             help="Validate config and jsonl without calling the API")
-    p_validate.add_argument("--api-mode", choices=["chat", "text"], default="chat",
-                            help="API mode: 'chat' (default) uses chat completions, 'text' uses text completions")
+    p_validate.add_argument("--api-mode", choices=["chat", "text", "messages"], default="chat",
+                            help="API mode: 'chat' (default) uses chat completions with single prompt, "
+                                 "'text' uses text completions, "
+                                 "'messages' passes the 'messages' array from input directly to chat completions")
 
     # --- convert ---
     p_convert = subparsers.add_parser(

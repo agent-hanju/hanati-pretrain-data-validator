@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Usage:
-#   ./run.sh validate [input.jsonl] [--config config.yml] [--output output.csv] [--format csv|xlsx] [--api-mode chat|text] [--dry-run]
+#   ./run.sh validate [input.jsonl] [--config config.yml] [--output output.csv] [--format csv|xlsx] [--api-mode chat|text|messages] [--dry-run]
 #   ./run.sh convert  <input.csv> [--output output.xlsx]
 #   ./run.sh sample   <file1.jsonl> [file2.jsonl ...] -n 20 -o output.jsonl [--text-field text] [--seed 42]
 #
@@ -20,7 +20,7 @@ fi
 COMMAND="${1:-}"
 if [[ -z "$COMMAND" ]]; then
     echo "Usage:" >&2
-    echo "  ./run.sh validate [input.jsonl] [--config config.yml] [--output output.csv] [--format csv|xlsx] [--api-mode chat|text] [--dry-run]" >&2
+    echo "  ./run.sh validate [input.jsonl] [--config config.yml] [--output output.csv] [--format csv|xlsx] [--api-mode chat|text|messages] [--dry-run]" >&2
     echo "  ./run.sh convert  <input.csv> [--output output.xlsx]" >&2
     echo "  ./run.sh sample   <file1.jsonl> [file2.jsonl ...] -n 20 -o output.jsonl [--seed 42]" >&2
     exit 1
