@@ -108,6 +108,7 @@ async def call_chat_messages(
     config: Config,
     tools: list[dict[str, Any]] | None = None,
     tool_choice: str | dict[str, Any] | None = None,
+    response_format: dict[str, Any] | None = None,
 ) -> CompletionResult:
     """messages 배열 → /v1/chat/completions (chat completions API)."""
     api = config["api"]
@@ -129,6 +130,8 @@ async def call_chat_messages(
         kwargs["tools"] = tools
     if tool_choice is not None:
         kwargs["tool_choice"] = tool_choice
+    if response_format is not None:
+        kwargs["response_format"] = response_format
 
     last_error: Exception | None = None
     for attempt in range(2):

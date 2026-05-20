@@ -9,7 +9,7 @@ from src.generator import CompletionResult, call_chat_messages, call_completions
 from src.loader import load_jsonl
 from src.writer import make_writer
 
-_MESSAGES_SKIP_FIELDS = {"id", "type", "messages", "tools", "tool_choice"}
+_MESSAGES_SKIP_FIELDS = {"id", "type", "messages", "tools", "tool_choice", "response_format"}
 
 FIXED_COLUMNS: list[str] = [
     "id", "type", "prompt", "generated", "tool_calls", "reasoning", "model", "finish_reason",
@@ -85,6 +85,7 @@ async def run(args: argparse.Namespace) -> None:
                         config,
                         tools=raw.get("tools"),
                         tool_choice=raw.get("tool_choice"),
+                        response_format=raw.get("response_format"),
                     )
                 else:
                     result = await call_completions(client, raw[prompt_field], config)
