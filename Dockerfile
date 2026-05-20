@@ -10,9 +10,5 @@ COPY --from=builder /install /usr/local
 WORKDIR /app
 COPY run.py .
 COPY src/ src/
-COPY config.yml .
 
-# Mount config.yml and input file at runtime
-# Example: docker run --rm -v $(pwd):/data myimage --config /data/config.yml
 ENTRYPOINT ["python", "run.py"]
-CMD ["--config", "config.yml"]

@@ -7,43 +7,36 @@ import yaml
 
 class ApiConfig(TypedDict):
     base_url: str
-    model: str
+    model: str | None
+    api_key: str | None
     concurrency: int
+    timeout: float
 
 
-class GenerationConfig(TypedDict):
-    max_tokens: int
-    temperature: float
-    top_p: float
-    top_k: int
-    seed: int
-    repetition_penalty: float
+class GenerationConfig(TypedDict, total=False):
+    max_tokens: int | None
+    temperature: float | None
+    top_p: float | None
+    top_k: int | None
+    seed: int | None
+    repetition_penalty: float | None
 
-
-class InputConfig(TypedDict):
-    prompt_field: str
 
 
 class Config(TypedDict):
     api: ApiConfig
     generation: GenerationConfig
-    input: InputConfig
 
 
 REQUIRED_KEYS: list[tuple[str, str]] = [
     ("api", "base_url"),
-    ("api", "model"),
-    ("generation", "max_tokens"),
-    ("generation", "temperature"),
-    ("generation", "seed"),
 ]
 
-DEFAULTS: dict[tuple[str, str], int | float | str] = {
-    ("generation", "top_p"): 1.0,
-    ("generation", "top_k"): -1,
-    ("generation", "repetition_penalty"): 1.0,
-    ("input", "prompt_field"): "prompt",
-    ("api", "concurrency"): 8,  # max simultaneous requests to vLLM
+DEFAULTS: dict[tuple[str, str], int | float | str | None] = {
+    ("api", "model"): None,
+    ("api", "api_key"): None,
+    ("api", "concurrency"): 256,
+    ("api", "timeout"): 120.0,
 }
 
 

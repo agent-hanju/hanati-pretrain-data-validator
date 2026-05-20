@@ -1,15 +1,15 @@
 import argparse
 import asyncio
-from pathlib import Path
 from typing import Any
 
 import orjson
 
 from src.config import Config, load_config
-from src.generator import CompletionResult, call_chat_messages, call_completions, call_text_completions, make_async_client
-from src.loader import load_jsonl, load_jsonl_messages
-from src.sampler import sample
-from src.writer import make_writer, convert_csv_to_xlsx
+from src.generator import CompletionResult, call_chat_messages, call_completions, make_async_client, resolve_model
+from src.loader import load_jsonl
+from src.writer import make_writer
+
+_MESSAGES_SKIP_FIELDS = {"id", "type", "messages", "tools", "tool_choice"}
 
 FIXED_COLUMNS: list[str] = [
     "id", "type", "prompt", "generated", "tool_calls", "reasoning", "model", "finish_reason",
@@ -17,9 +17,13 @@ FIXED_COLUMNS: list[str] = [
 ]
 
 
+def _extra_keys(raw: dict[str, Any], prompt_field: str) -> list[str]:
+    skip = _MESSAGES_SKIP_FIELDS if prompt_field == "messages" else {"id", "type", prompt_field}
+    return [k for k in raw if k not in skip]
+
+
 def make_fieldnames(first_raw: dict[str, Any], prompt_field: str) -> list[str]:
-    extra = [k for k in first_raw if k not in ("id", "type", prompt_field)]
-    return FIXED_COLUMNS + extra
+    return FIXED_COLUMNS + _extra_keys(first_raw, prompt_field)
 
 
 def build_row(
@@ -28,7 +32,7 @@ def build_row(
     config: Config,
     prompt_field: str,
 ) -> dict[str, Any]:
-    extra_keys = [k for k in raw if k not in ("id", "type", prompt_field)]
+    extra_keys = _extra_keys(raw, prompt_field)
     prompt_val = raw.get(prompt_field, "")
     if not isinstance(prompt_val, str):
         prompt_val = orjson.dumps(prompt_val).decode()
@@ -50,35 +54,31 @@ def build_row(
     return row
 
 
-async def run_validate(args: argparse.Namespace) -> None:
+async def run(args: argparse.Namespace) -> None:
     config = load_config(args.config)
-    api_mode = getattr(args, "api_mode", "chat")
-    use_messages_mode = api_mode == "messages"
-
-    if use_messages_mode:
-        rows_input = load_jsonl_messages(args.input)
+    is_chat = False
+    prompt_field = "prompt"
+    if args.mode == "messages":
+        is_chat = True
         prompt_field = "messages"
-    else:
-        prompt_field = config["input"]["prompt_field"]
-        rows_input = load_jsonl(args.input, prompt_field)
+    rows_input = load_jsonl(args.input, is_chat)
+
+    if config["api"]["model"] is None:
+        config["api"]["model"] = await resolve_model(config["api"]["base_url"], float(config["api"]["timeout"]))
 
     print(f"Loaded {len(rows_input)} rows from {args.input}")
-    print(f"API mode: {api_mode}")
-
-    if args.dry_run:
-        print("[dry-run] Config and input file are valid. Exiting without API calls.")
-        return
+    print(f"Mode: {args.mode}")
 
     total = len(rows_input)
     concurrency = config["api"]["concurrency"]
     semaphore = asyncio.Semaphore(concurrency)
     completed = 0
 
-    async with make_async_client(config["api"]["base_url"]) as client:
+    async with make_async_client(config["api"]["base_url"], config["api"]["timeout"]) as client:
         async def bounded_call(raw: dict[str, Any]) -> dict[str, Any]:
             nonlocal completed
             async with semaphore:
-                if use_messages_mode:
+                if is_chat:
                     result = await call_chat_messages(
                         client,
                         raw["messages"],
@@ -86,8 +86,6 @@ async def run_validate(args: argparse.Namespace) -> None:
                         tools=raw.get("tools"),
                         tool_choice=raw.get("tool_choice"),
                     )
-                elif api_mode == "text":
-                    result = await call_text_completions(client, raw[prompt_field], config)
                 else:
                     result = await call_completions(client, raw[prompt_field], config)
             completed += 1
@@ -98,73 +96,20 @@ async def run_validate(args: argparse.Namespace) -> None:
         tasks = [bounded_call(raw) for raw in rows_input]
         rows_output: list[dict[str, Any]] = await asyncio.gather(*tasks)
 
-    fmt = args.format or ("xlsx" if args.output.endswith(".xlsx") else "csv")
     fieldnames = make_fieldnames(rows_input[0], prompt_field)
-    with make_writer(fmt, config, fieldnames, args.output, args.input) as writer:
-        for row in rows_output:  # asyncio.gather preserves input order
+    with make_writer(args.format, config, fieldnames, args.output, args.input) as writer:
+        for row in rows_output:
             writer.write_row(row)
 
-
-def run_sample(args: argparse.Namespace) -> None:
-    results = sample(args.inputs, args.n, args.text_field, args.seed)
-
-    out = Path(args.output)
-    with open(out, "wb") as f:
-        for row in results:
-            f.write(orjson.dumps(row) + b"\n")
-
-    print(f"Wrote {len(results)} samples to {out}")
-
-
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Pretrain Data Validator")
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", default="config.yml", help="YAML config file path")
+    parser.add_argument("--input", required=True, help="Input JSONL file path")
+    parser.add_argument("--output", required=True, help="Output file path")
+    parser.add_argument("--mode", choices=["prompt", "messages"], default="messages", help="prompt: completions API, messages: chat completions API")
+    parser.add_argument("--format", choices=["csv", "jsonl"], default="csv", help="Output format")
 
-    # --- validate ---
-    p_validate = subparsers.add_parser(
-        "validate", help="Run validation via LLM API",
-    )
-    p_validate.add_argument("--config", default="config.yml", help="YAML config file path")
-    p_validate.add_argument("--input", required=True, help="Input JSONL file path")
-    p_validate.add_argument("--output", required=True, help="Output file path")
-    p_validate.add_argument("--format", choices=["csv", "xlsx"], default=None,
-                            help="Output format (default: inferred from --output extension)")
-    p_validate.add_argument("--dry-run", action="store_true",
-                            help="Validate config and jsonl without calling the API")
-    p_validate.add_argument("--api-mode", choices=["chat", "text", "messages"], default="chat",
-                            help="API mode: 'chat' (default) uses chat completions with single prompt, "
-                                 "'text' uses text completions, "
-                                 "'messages' passes the 'messages' array from input directly to chat completions")
-
-    # --- convert ---
-    p_convert = subparsers.add_parser(
-        "convert", help="Convert CSV output to xlsx",
-    )
-    p_convert.add_argument("--input", required=True, help="Input CSV file path")
-    p_convert.add_argument("--output", default=None, help="Output xlsx file path (default: same name with .xlsx)")
-
-    # --- sample ---
-    p_sample = subparsers.add_parser(
-        "sample", help="Sample random snippets from JSONL files",
-    )
-    p_sample.add_argument("inputs", nargs="+", help="Input JSONL file paths")
-    p_sample.add_argument("-n", type=int, default=10,
-                          help="Number of documents to sample (default: 10)")
-    p_sample.add_argument("-o", "--output", required=True, help="Output JSONL file path")
-    p_sample.add_argument("--text-field", default="text",
-                          help="Name of the text field (default: text)")
-    p_sample.add_argument("--seed", type=int, default=None,
-                          help="Random seed for reproducibility")
-
-    args = parser.parse_args()
-
-    if args.command == "validate":
-        asyncio.run(run_validate(args))
-    elif args.command == "convert":
-        xlsx_out = args.output or args.input.removesuffix(".csv") + ".xlsx"
-        convert_csv_to_xlsx(args.input, xlsx_out)
-    elif args.command == "sample":
-        run_sample(args)
+    asyncio.run(run(parser.parse_args()))
 
 
 if __name__ == "__main__":
