@@ -72,35 +72,40 @@ async def run(args: argparse.Namespace) -> None:
     total = len(rows_input)
     concurrency = config["api"]["concurrency"]
     semaphore = asyncio.Semaphore(concurrency)
+    rps = config["api"]["rps"]
+    rps_semaphore = asyncio.Semaphore(rps) if rps is not None else None
     completed = 0
-
-    async with make_async_client(config["api"]["base_url"], config["api"]["timeout"]) as client:
-        async def bounded_call(raw: dict[str, Any]) -> dict[str, Any]:
-            nonlocal completed
-            async with semaphore:
-                if is_chat:
-                    result = await call_chat_messages(
-                        client,
-                        raw["messages"],
-                        config,
-                        tools=raw.get("tools"),
-                        tool_choice=raw.get("tool_choice"),
-                        response_format=raw.get("response_format"),
-                    )
-                else:
-                    result = await call_completions(client, raw[prompt_field], config)
-            completed += 1
-            status = "ok" if result["finish_reason"] != "error" else "error"
-            print(f"[{completed}/{total}] id={raw['id']} → {status} ({result['finish_reason']})")
-            return build_row(raw, result, config, prompt_field)
-
-        tasks = [bounded_call(raw) for raw in rows_input]
-        rows_output: list[dict[str, Any]] = await asyncio.gather(*tasks)
 
     fieldnames = make_fieldnames(rows_input[0], prompt_field)
     with make_writer(args.format, config, fieldnames, args.output, args.input) as writer:
-        for row in rows_output:
-            writer.write_row(row)
+        async with make_async_client(config["api"]["base_url"], config["api"]["timeout"], config["api"]["api_key"], config["api"]["service_tier"]) as client:
+            write_lock = asyncio.Lock()
+
+            async def bounded_call(raw: dict[str, Any]) -> None:
+                nonlocal completed
+                if rps_semaphore is not None:
+                    await rps_semaphore.acquire()
+                    asyncio.get_event_loop().call_later(1, rps_semaphore.release)
+                async with semaphore:
+                    if is_chat:
+                        result = await call_chat_messages(
+                            client,
+                            raw["messages"],
+                            config,
+                            tools=raw.get("tools"),
+                            tool_choice=raw.get("tool_choice"),
+                            response_format=raw.get("response_format"),
+                        )
+                    else:
+                        result = await call_completions(client, raw[prompt_field], config)
+                row = build_row(raw, result, config, prompt_field)
+                async with write_lock:
+                    writer.write_row(row)
+                    completed += 1
+                status = "ok" if result["finish_reason"] != "error" else "error"
+                print(f"[{completed}/{total}] id={raw['id']} → {status} ({result['finish_reason']})")
+
+            await asyncio.gather(*[bounded_call(raw) for raw in rows_input])
 
 def main() -> None:
     parser = argparse.ArgumentParser()

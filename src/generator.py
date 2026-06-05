@@ -38,12 +38,12 @@ async def resolve_model(base_url: str, timeout: float) -> str:
             sys.exit(1)
 
 
-def make_async_client(base_url: str, timeout: float) -> AsyncOpenAI:
+def make_async_client(base_url: str, timeout: float, api_key: str | None = None, service_tier: str | None = None) -> AsyncOpenAI:
     return AsyncOpenAI(
         base_url=base_url,
-        api_key="EMPTY",
+        api_key=api_key or "EMPTY",
         max_retries=0,
-        timeout=timeout,
+        timeout=None if service_tier == "flex" else timeout,
     )
 
 
@@ -82,6 +82,8 @@ async def call_completions(client: AsyncOpenAI, prompt: str, config: Config) -> 
             extra = _extra_body(gen.get("repetition_penalty"), gen.get("top_k"))
             if extra is not None:
                 comp_kwargs["extra_body"] = extra
+            if (st := api.get("service_tier")) is not None:
+                comp_kwargs["service_tier"] = st
             response = cast(Completion, await client.completions.create(**comp_kwargs))
             choice = response.choices[0]
             usage = response.usage
@@ -132,6 +134,8 @@ async def call_chat_messages(
         kwargs["tool_choice"] = tool_choice
     if response_format is not None:
         kwargs["response_format"] = response_format
+    if (st := api.get("service_tier")) is not None:
+        kwargs["service_tier"] = st
 
     last_error: Exception | None = None
     for attempt in range(2):

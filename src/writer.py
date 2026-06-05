@@ -14,12 +14,12 @@ def build_comment(config: Config, input_path: str) -> str:
     gen = config["generation"]
     return (
         f"# model={api['model']} "
-        f"max_tokens={gen['max_tokens']} "
-        f"temperature={gen['temperature']} "
-        f"top_p={gen['top_p']} "
-        f"top_k={gen['top_k']} "
-        f"repetition_penalty={gen['repetition_penalty']} "
-        f"seed={gen['seed']} "
+        f"max_tokens={gen.get('max_tokens')} "
+        f"temperature={gen.get('temperature')} "
+        f"top_p={gen.get('top_p')} "
+        f"top_k={gen.get('top_k')} "
+        f"repetition_penalty={gen.get('repetition_penalty')} "
+        f"seed={gen.get('seed')} "
         f"input={input_path}"
     )
 

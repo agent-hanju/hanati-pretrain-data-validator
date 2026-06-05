@@ -11,6 +11,8 @@ class ApiConfig(TypedDict):
     api_key: str | None
     concurrency: int
     timeout: float
+    service_tier: str | None
+    rps: int | None
 
 
 class GenerationConfig(TypedDict, total=False):
@@ -37,6 +39,8 @@ DEFAULTS: dict[tuple[str, str], int | float | str | None] = {
     ("api", "api_key"): None,
     ("api", "concurrency"): 256,
     ("api", "timeout"): 120.0,
+    ("api", "service_tier"): None,
+    ("api", "rps"): None,
 }
 
 
